@@ -26,7 +26,7 @@ def k2c(khash)
         kconsumer.subscribe(khash[:kafka_topic], start_from_beginning: false)
         
         kconsumer.each_message do |message|
-            puts "Message: #{message.offset}, #{message.value}"
+            puts "Message: #{message.offset}, #{message.value}" unless ENV['DEBUG'].nil?
             m = JSON.parse(message.value)
             @aphash[m["node_mac"]] = m["probe_requests"]
         end
