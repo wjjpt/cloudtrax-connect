@@ -28,7 +28,7 @@ def k2c(khash)
         kconsumer.each_message do |message|
             puts "Message: #{message.offset}, #{message.value}" unless ENV['DEBUG'].nil?
             m = JSON.parse(message.value)
-            @aphash[m["node_mac"]] = m["probe_requests"]
+            @aphash[m["node_mac"]] = { "network_id" => m["network_id"],"probe_requests" => m["probe_requests"]}
         end
 
     rescue Exception => e
@@ -48,21 +48,24 @@ def c2k(khash)
             next if @aphash.empty?
             clienthash = {}
             @aphash.each_key do |ap|
-                @aphash[ap].each do |client|
+                @aphash[ap]["probe_requests"].each do |client|
                     if clienthash[client["mac"]].nil?
                         # first time
                         clienthash[client["mac"]] = [{ "ap" => ap,
+                                                       "network_id" => @aphash[ap]["network_id"],
                                                        "last_seen" => client["last_seen"],
                                                        "rssi" =>  client["last_seen_signal"] }]
                     else
                         clienthash[client["mac"]] << { "ap" => ap,
+                                                       "network_id" => @aphash[ap]["network_id"],
                                                        "last_seen" => client["last_seen"],
                                                        "rssi" =>  client["last_seen_signal"] }
                     end
                 end
             end
+            mytime = Time.now.to_i
             clienthash.each_key do |client|
-                kclient.deliver_message("#{{ "mac" => client, "aplist" => clienthash[client] }.to_json}",topic: "#{khash[:kafka_topic_output]}")
+                kclient.deliver_message("#{{ "timestamp" => mytime, "mac" => client, "aplist" => clienthash[client] }.to_json}",topic: "#{khash[:kafka_topic_output]}")
             end
             sleep @interval
         rescue Exception => e
