@@ -47,8 +47,18 @@ def c2k(khash)
         begin
             next if @aphash.empty?
             clienthash = {}
+            clientnetid = {}
             @aphash.each_key do |ap|
                 @aphash[ap]["probe_requests"].each do |client|
+                    if clientnetid[client["mac"]].nil?
+                        # first time
+                        clientnetid[client["mac"]] = { "network_id" => @aphash[ap]["network_id"], "rssi" => client["last_seen_signal"] }
+                    else
+                        # select greater rssi value (closest AP)
+                        if clientnetid[client["mac"]]["rssi"] < client["last_seen_signal"]
+                            clientnetid[client["mac"]] = { "network_id" => @aphash[ap]["network_id"], "rssi" => client["last_seen_signal"] }
+                        end
+                    end
                     if clienthash[client["mac"]].nil?
                         # first time
                         clienthash[client["mac"]] = [{ "ap" => ap,
@@ -65,7 +75,7 @@ def c2k(khash)
             end
             mytime = Time.now.to_i
             clienthash.each_key do |client|
-                kclient.deliver_message("#{{ "timestamp" => mytime, "mac" => client, "aplist" => clienthash[client] }.to_json}",topic: "#{khash[:kafka_topic_output]}")
+                kclient.deliver_message("#{{ "timestamp" => mytime, "mac" => client, "network_id" => clientnetid[client]["network_id"], "maxrssi" => clientnetid[client]["rssi"], "aplist" => clienthash[client] }.to_json}",topic: "#{khash[:kafka_topic_output]}")
             end
             sleep @interval
         rescue Exception => e
