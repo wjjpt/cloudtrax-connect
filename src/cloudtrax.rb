@@ -22,13 +22,14 @@ end
 
 def apconf(khash)
     kclient = Kafka.new(seed_brokers: ["#{khash[:kafka_broker]}:#{khash[:kafka_port]}"], client_id: khash[:kafka_client_id])
-    kconsumer = kclient.consumer(group_id: khash[:kafka_client_id])
+    puts "Subscribing to kafka topic #{khash[:kafka_topic_setup]}"
+    kconsumer = kclient.consumer(group_id: "#{Time.now.to_i}")
     begin
         kconsumer.subscribe(khash[:kafka_topic_setup], start_from_beginning: true)
         kconsumer.each_message do |message|
             puts "Message: #{message.offset}, #{message.value}" unless ENV['DEBUG'].nil?
             m = JSON.parse(message.value)
-            @apconfig[m["mac"]] = m
+            @apconfig[m["mac"].upcase] = m
         end
     rescue Exception => e
         puts "Exception: #{e.class}, message: #{e.message}"
@@ -39,6 +40,7 @@ def apconf(khash)
 end
 
 def k2c(khash)
+    sleep 1
     kclient = Kafka.new(seed_brokers: ["#{khash[:kafka_broker]}:#{khash[:kafka_port]}"], client_id: khash[:kafka_client_id])
     puts "Subscribing to kafka topic #{khash[:kafka_topic]}"
     kconsumer = kclient.consumer(group_id: khash[:kafka_client_id])
@@ -46,7 +48,7 @@ def k2c(khash)
         kconsumer.subscribe(khash[:kafka_topic], start_from_beginning: false)
         
         kconsumer.each_message do |message|
-            puts "Message: #{message.offset}, #{message.value}" unless ENV['DEBUG'].nil?
+            puts "Message from #{khash[:kafka_topic]} number #{message.offset}" unless ENV['DEBUG'].nil?
             m = JSON.parse(message.value)
             @aphash[m["node_mac"]] = { "network_id" => m["network_id"],"probe_requests" => m["probe_requests"]}
         end
@@ -60,12 +62,15 @@ def k2c(khash)
 end
 
 def c2k(khash)
-    sleep 1
+    sleep 2
     kclient = Kafka.new(seed_brokers: ["#{khash[:kafka_broker]}:#{khash[:kafka_port]}"], client_id: khash[:kafka_client_id])
     puts "Producing to kafka topic #{khash[:kafka_topic_output]}"
     while true
         begin
-            next if @aphash.empty?
+            if @aphash.empty?
+                sleep 1
+                next
+            end
             clienthash = {}
             clientnetid = {}
             @aphash.each_key do |ap|
@@ -79,18 +84,25 @@ def c2k(khash)
                             clientnetid[client["mac"]] = { "network_id" => @aphash[ap]["network_id"], "rssi" => client["last_seen_signal"] }
                         end
                     end
+                    unless @apconfig[ap.upcase].nil?
+                        lat = @apconfig[ap.upcase]["lat"]
+                        lon = @apconfig[ap.upcase]["lon"]
+                    else
+                        lat = nil
+                        lon = nil
+                    end
                     if clienthash[client["mac"]].nil?
                         # first time
                         clienthash[client["mac"]] = [{ "ap" => ap,
-                                                       "lat" => @apconfig[ap]["lat"],
-                                                       "lon" => @apconfig[ap]["lon"],
+                                                       "lat" => lat,
+                                                       "lon" => lon,
                                                        "network_id" => @aphash[ap]["network_id"],
                                                        "last_seen" => client["last_seen"],
                                                        "rssi" =>  client["last_seen_signal"] }]
                     else
                         clienthash[client["mac"]] << { "ap" => ap,
-                                                       "lat" => @apconfig[ap]["lat"],
-                                                       "lon" => @apconfig[ap]["lon"],
+                                                       "lat" => lat,
+                                                       "lon" => lon,
                                                        "network_id" => @aphash[ap]["network_id"],
                                                        "last_seen" => client["last_seen"],
                                                        "rssi" =>  client["last_seen_signal"] }
@@ -99,6 +111,7 @@ def c2k(khash)
             end
             mytime = Time.now.to_i
             clienthash.each_key do |client|
+                puts "#{{ "timestamp" => mytime, "mac" => client, "network_id" => clientnetid[client]["network_id"], "maxrssi" => clientnetid[client]["rssi"], "aplist" => clienthash[client] }.to_json}" unless ENV['DEBUG'].nil?
                 kclient.deliver_message("#{{ "timestamp" => mytime, "mac" => client, "network_id" => clientnetid[client]["network_id"], "maxrssi" => clientnetid[client]["rssi"], "aplist" => clienthash[client] }.to_json}",topic: "#{khash[:kafka_topic_output]}")
             end
             sleep @interval
