@@ -6,16 +6,36 @@ require 'kafka'
 $stdout.sync = true
 @name = "cloudtrax2k"
 @aphash = {}
+@apconfig = {}
 @interval = ENV['TIME_INTERVAL'].nil? ? 60 : ENV['TIME_INTERVAL'].to_i
 kafka_hash = {  :kafka_broker => ENV['KAFKA_BROKER'].nil? ? "127.0.0.1" : ENV['KAFKA_BROKER'],
                 :kafka_port => ENV['KAFKA_PORT'].nil? ? "9092" : ENV['KAFKA_PORT'],
                 :kafka_topic => ENV['KAFKA_TOPIC'].nil? ? "cloudtrax" : ENV['KAFKA_TOPIC'],
+                :kafka_topic_setup => ENV['KAFKA_TOPIC_SETUP'].nil? ? "cloudtrax_setup" : ENV['KAFKA_TOPIC_SETUP'],
                 :kafka_topic_output => ENV['KAFKA_TOPIC_OUTPUT'].nil? ? "cloudtrax_RTLS" : ENV['KAFKA_TOPIC_OUTPUT'],
                 :kafka_client_id => @name }
 
 def j2j(event)
     rssi = event["rssi"].to_i
     event
+end
+
+def apconf(khash)
+    kclient = Kafka.new(seed_brokers: ["#{khash[:kafka_broker]}:#{khash[:kafka_port]}"], client_id: khash[:kafka_client_id])
+    kconsumer = kclient.consumer(group_id: khash[:kafka_client_id])
+    begin
+        kconsumer.subscribe(khash[:kafka_topic_setup], start_from_beginning: true)
+        kconsumer.each_message do |message|
+            puts "Message: #{message.offset}, #{message.value}" unless ENV['DEBUG'].nil?
+            m = JSON.parse(message.value)
+            @apconfig[m["mac"]] = m
+        end
+    rescue Exception => e
+        puts "Exception: #{e.class}, message: #{e.message}"
+        puts "Disconnecting from kafka server"
+        kconsumer.stop
+        puts "[#{@name}] Stopping cloudtrax_setup thread"
+    end 
 end
 
 def k2c(khash)
@@ -62,11 +82,15 @@ def c2k(khash)
                     if clienthash[client["mac"]].nil?
                         # first time
                         clienthash[client["mac"]] = [{ "ap" => ap,
+                                                       "lat" => @apconfig[ap]["lat"],
+                                                       "lon" => @apconfig[ap]["lon"],
                                                        "network_id" => @aphash[ap]["network_id"],
                                                        "last_seen" => client["last_seen"],
                                                        "rssi" =>  client["last_seen_signal"] }]
                     else
                         clienthash[client["mac"]] << { "ap" => ap,
+                                                       "lat" => @apconfig[ap]["lat"],
+                                                       "lon" => @apconfig[ap]["lon"],
                                                        "network_id" => @aphash[ap]["network_id"],
                                                        "last_seen" => client["last_seen"],
                                                        "rssi" =>  client["last_seen_signal"] }
@@ -92,8 +116,10 @@ catch :sigint do
         puts "[#{@name}] Starting cloudtrax threads"
         t1 = Thread.new{k2c(kafka_hash)}
         t2 = Thread.new{c2k(kafka_hash)}
+        t3 = Thread.new{apconf(kafka_hash)}
         t1.join
         t2.join
+        t3.join
     end
 end
 
