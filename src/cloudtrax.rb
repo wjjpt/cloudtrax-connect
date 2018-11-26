@@ -33,7 +33,7 @@ def ieminmaxloc(m)
             valid = false
         else
             valid = true
-            utm = GeoUtm::LatLon.new(ap["lat"], ap["lon"]).to_utm
+            utm = GeoUtm::LatLon.new(ap["lat"].to_f, ap["lon"].to_f).to_utm
             zone = utm.zone
             x = utm.e
             y = utm.n
@@ -65,14 +65,13 @@ def ieminmaxloc(m)
         p2 = [ minxplusd , minyplusd ]
         p3 = [ minxplusd , maxyminusd ]
         p4 = [ maxxminusd , maxyminusd ]
-
         # calculing only E-MinMax algorithm
         utmx = ((p1[0]+p2[0])/2.0)
         utmy = ((p1[1]+p4[1])/2.0)
         latlon = GeoUtm::UTM.new(zone,utmx,utmy,GeoUtm::Ellipsoid::WGS84).to_lat_lon
-        latlon.lat,latlon.lon
+        [latlon.lat.to_s,latlon.lon.to_s]
     else
-        nil,nil
+        [nil,nil]
     end
 end
 
@@ -109,8 +108,7 @@ def trilat(khash)
             if lat.nil? or lon.nil?
                 next
             else
-                puts "#{{ "timestamp" => m["timestamp"], "mac" => m["mac"], "network_id" => m["network_id"], "maxrssi" => m["rssi"], "lat" => lat, "lon" => lon}.to_json}"
-                kclient.deliver_message("#{{ "timestamp" => m["timestamp"], "mac" => m["mac"], "network_id" => m["network_id"], "maxrssi" => m["rssi"], "lat" => lat, "lon" => lon}.to_json}",topic: "#{khash[:kafka_topic_output]}")
+                kclient.deliver_message("#{{ "timestamp" => m["timestamp"], "mac" => m["mac"], "network_id" => m["network_id"], "maxrssi" => m["maxrssi"], "lat" => lat, "lon" => lon}.to_json}",topic: "#{khash[:kafka_topic_output]}")
             end
         end
     rescue Exception => e
@@ -192,7 +190,7 @@ def c2k(khash)
             end
             mytime = Time.now.to_i
             clienthash.each_key do |client|
-                puts "#{{ "timestamp" => mytime, "mac" => client, "network_id" => clientnetid[client]["network_id"], "maxrssi" => clientnetid[client]["rssi"], "aplist" => clienthash[client] }.to_json}" unless ENV['DEBUG'].nil?
+                #puts "#{{ "timestamp" => mytime, "mac" => client, "network_id" => clientnetid[client]["network_id"], "maxrssi" => clientnetid[client]["rssi"], "aplist" => clienthash[client] }.to_json}" unless ENV['DEBUG'].nil?
                 kclient.deliver_message("#{{ "timestamp" => mytime, "mac" => client, "network_id" => clientnetid[client]["network_id"], "maxrssi" => clientnetid[client]["rssi"], "aplist" => clienthash[client] }.to_json}",topic: "#{khash[:kafka_topic_enrich]}")
             end
             sleep @interval
